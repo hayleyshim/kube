@@ -1,0 +1,30 @@
+# Kubernetes cluster upgrade
+- kubeadm, kubelet, kubectl을 1.22.4에서 1.23.3 버전으로 업그레이드
+
+# Control-plane Upgrade
+1. Upgrade할 master에 접속 : ssh <master>
+2. 업그레이드 할 버전 확인
+sudo yum list --showduplicates kubeadm --disableexcludes=kubernetes | tail -5
+
+3. kubeadm 업그레이드
+ref) https://kubernetes.io/ko/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/
+
+sudo yum install -y kubeadm-1.23.3-0 --disableexcludes=kubernetes
+sudo kubeadm version
+sudo kubeadm upgrade plan v1.23.3
+sudo kubeadm upgrade apply v1.23.3
+
+4. 노드 드레인 : console이나 master에서 실행
+kubectl drain k8s-master --ignore-daemonsets
+
+5. kubelet과 kubectl 업그레이드
+sudo yum install -y kubelet-1.23.3-0 kubectl-1.23.3-0 --disableexcludes=kubernetes
+sudo systemctl daemon-reload
+sudo systemctl restart kubelet
+
+6. 노드 uncordon
+kubectl uncordon k8s-master
+
+#Node Upgrade
+
+
