@@ -1,0 +1,251 @@
+# RBAC
+- API 서버에 접근하기 위해서는 인증 작업 필요
+- Role-based access control(RBAC:역할 기반 엑세스 제어) : 사용자의 역할에 따라 리소스에 대한 접근 권한 가짐
+- User : 클러스터 외부에서 쿠버네티스를 조작하는 사용자 인증
+# user 정보
+$ cat .kube/config 
+
+- Service Account : Pod가 쿠버네티스 API를 다룰 때 사용하는 계정
+$ kubectl get pods eshop-cart-app -o yaml | grep -i serviceaccount
+$ kubectl get secrets
+NAME                  TYPE                                  DATA   AGE
+default-token-gvdn7   kubernetes.io/service-account-token   3      245d
+
+$ kubectl get secrets default-token-gvdn7
+
+# Role & RoleBinding을 이용한 권한 제어
+- 특정 User나 ServiceAccount가 접근하려는 API에 접근 권한을 설정
+- 권한 있는 User만 접근하도록 허용
+- 권한제어
+- Role 
+    - 어떤 API를 이용할 수 있는지의 정의
+    - 쿠버네티스의 사용 권한을 정의
+    - 지정된 네임스페이스에서만 유효
+- RoleBinding
+    - 사용자/그룹 또는 Service Account와 role을 연결
+
+
+# ClusterRole과 ClusterRoleBinding
+- Cluster Role
+    - 어떤 API를 사용할 수 있는지 권한 정의. 클러스터 전체(전체 네임스페이스)에서 유효      
+
+- ClusterRoleBinding
+    - 사용자/그룹 또는 Service Account와 Role을 연결
+
+
+# ServiceAccount, Role, RoleBinding
+
+
+문제 예 1) 
+참고 : https://kubernetes.io/docs/reference/access-authn-authz/rbac/
+
+작업 클러스터 : k8s
+애플리케이션 운영 중 특정 namespace의 pod들을 모니터할 수 있는 서비스가 요청되었습니다. 
+api-access 네임스페이스의 모든 pod를 view할 수 있도록 다음 작업을 진행하시오.
+
+- 1) api-access라는 새로운 namespace에 pod-viewer라는 이름의 Service Account를 만듭니다
+- 2) podreader-role이라는 이름의 Role과 podreader-rolebinding이라는 이름의 RoleBinding을 만듭니다
+- 3) 앞서 생성한 ServiceAccount를 API resource Pod에 대하여 watch, list, get을 허용하도록 매핑하시오
+
+
+문제 풀이 방법)
+- 1) 현재 클러스터 확인 
+$ kubectl config currnet-context
+
+- 2) namespace 생성 : api-access
+$ kubectl create namespace api-access
+namespace/api-access created
+
+- 3) Service Account : pod-viewer --namespace api-access
+$ kubectl create serviceaccount pod-viewer --namespace api-access
+serviceaccount/pod-viewer created
+
+$ kubectl get serviceaccounts --namespace=api-access
+NAME         SECRETS   AGE
+default      1         28s
+pod-viewer   1         12s
+
+
+- 4) role 생성 : podreader-role : pod watch, list, get --namespace api-access
+$ kubectl create role podreader-role --verb=get --verb=list --verb=watch --resource=pods --namespace api-access
+role.rbac.authorization.k8s.io/podreader-role created
+
+$ kubectl get role --namespace=api-access
+NAME             CREATED AT
+podreader-role   2022-09-27T05:35:17Z
+
+$ kubectl describe role --namespace=api-access podreader-role
+Name:         podreader-role
+Labels:       <none>
+Annotations:  <none>
+PolicyRule:
+  Resources  Non-Resource URLs  Resource Names  Verbs
+  ---------  -----------------  --------------  -----
+  pods       []                 []              [get list watch]
+
+- 5) rolebinding 생성 : podreader-rolebinding role=podreader-role serviceaccount=pod-viewer
+$ kubectl create rolebinding podreader-rolebinding --role=podreader-role --serviceaccount=api-access:pod-viewer --namespace=api-access
+rolebinding.rbac.authorization.k8s.io/podreader-rolebinding created
+
+$ kubectl get rolebindings --namespace=api-access
+NAME                    ROLE                  AGE
+podreader-rolebinding   Role/podreader-role   102s
+
+$ kubectl describe rolebindings podreader-rolebinding --namespace=api-access
+Name:         podreader-rolebinding
+Labels:       <none>
+Annotations:  <none>
+Role:
+  Kind:  Role
+  Name:  podreader-role
+Subjects:
+  Kind            Name        Namespace
+  ----            ----        ---------
+  ServiceAccount  pod-viewer  api-access
+
+
+문제 예 2) 
+참고 : https://kubernetes.io/docs/reference/access-authn-authz/rbac/#rolebinding-and-clusterrolebinding
+
+
+작업 클러스터 : k8s
+작업 Context에서 애플리케이션 배포를 위해 새로운 ClusterRole을 생성하고 특정 namespace의 ServiceAccount를 바인드하시오.
+
+- 1) 다음의 resource type에서만 create가 허용된 ClusterRole deployment-clusterrole을 생성합니다.
+     Resource Type: Deployment StatefulSet Daemonset
+- 2) 미리 생성된 namespace api-access에 cicd-token이라는 새로운 ServiceAccount를 만듭니다.
+- 3) ClusterRole deployment-clusterrole을 namespace api-access로 제한된 새 ServiceAccount cicd-token에 바인딩합니다. 
+
+
+문제 풀이 방법)
+1. ClusterRole 생성 : deployment-clusterrole Create Deployment StatfulSet DaemonSet
+$ kubectl create clusterrole deployment-clusterrole --verb=create --resource=deployment,statefulSet,daemonSet
+clusterrole.rbac.authorization.k8s.io/deployment-clusterrole created
+
+$ kubectl get clusterrole deployment-clusterrole
+NAME                     CREATED AT
+deployment-clusterrole   2022-09-27T07:33:34Z
+
+$ kubectl describe clusterrole deployment-clusterrole
+Name:         deployment-clusterrole
+Labels:       <none>
+Annotations:  <none>
+PolicyRule:
+  Resources          Non-Resource URLs  Resource Names  Verbs
+  ---------          -----------------  --------------  -----
+  daemonsets.apps    []                 []              [create]
+  deployments.apps   []                 []              [create]
+  statefulsets.apps  []                 []              [create]
+
+
+2. ServiceAccount cicd-token namespace api-access
+$ kubectl create serviceaccount cicd-token --namespace=api-access
+serviceaccount/cicd-token created
+
+$ kubectl get sa --namespace=api-access
+NAME         SECRETS   AGE
+cicd-token   1         14s
+default      1         126m
+pod-viewer   1         126m
+
+3. ClusterroleBinding deployment-clusterrolebinding deployment-clusterrole api-access:cicd-token
+$ kubectl create clusterrolebinding deployment-clusterrolebinding --clusterrole=deployment-clusterrole --serviceaccount=api-access:cicd-token
+clusterrolebinding.rbac.authorization.k8s.io/deployment-clusterrolebinding created
+
+$ kubectl get clusterrolebindings deployment-clusterrolebinding
+NAME                            ROLE                                 AGE
+deployment-clusterrolebinding   ClusterRole/deployment-clusterrole   52s
+
+$ kubectl describe clusterrolebinding deployment-clusterrolebinding
+Name:         deployment-clusterrolebinding
+Labels:       <none>
+Annotations:  <none>
+Role:
+  Kind:  ClusterRole
+  Name:  deployment-clusterrole
+Subjects:
+  Kind            Name        Namespace
+  ----            ----        ---------
+  ServiceAccount  cicd-token  api-access
+
+
+# User, ClusterRole, ClusterRoleBinding
+
+문제 예 3) 
+참고 : https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/
+
+
+작업 클러스터 : k8s
+CSR(Certificate Signing Request)를 통해 app-manager 인증서를 발급받은 user app-manager 에게 cluster 내 모든 namespace의 deployment, pod, service 리소스를 create, list, get, update, delete 할 수 있는 권한을 할당하시오.
+- user name : app-manager
+- certificate name : app-manager
+- clusterRole name : app-access
+- clusterRoleBinding name : app-access-binding-manager
+
+1. user : app-manager
+a.인증서
+$ openssl genrsa -out app-manager.key 2048
+$ openssl req -new -key app-manager.key -out app-manager.csr -subj "/CN=app-manager"
+
+$ cat > app-manager.yaml
+apiVersion: certificates.k8s.io/v1
+kind: CertificateSigningRequest
+metadata:
+  name: myuser
+spec:
+  request: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KTUlJQ1ZqQ0NBVDRDQVFBd0VURVBNQTBHQTFVRUF3d0dZVzVuWld4aE1JSUJJakFOQmdrcWhraUc5dzBCQVFFRgpBQU9DQVE4QU1JSUJDZ0tDQVFFQTByczhJTHRHdTYxakx2dHhWTTJSVlRWMDNHWlJTWWw0dWluVWo4RElaWjBOCnR2MUZtRVFSd3VoaUZsOFEzcWl0Qm0wMUFSMkNJVXBGd2ZzSjZ4MXF3ckJzVkhZbGlBNVhwRVpZM3ExcGswSDQKM3Z3aGJlK1o2MVNrVHF5SVBYUUwrTWM5T1Nsbm0xb0R2N0NtSkZNMUlMRVI3QTVGZnZKOEdFRjJ6dHBoaUlFMwpub1dtdHNZb3JuT2wzc2lHQ2ZGZzR4Zmd4eW8ybmlneFNVekl1bXNnVm9PM2ttT0x1RVF6cXpkakJ3TFJXbWlECklmMXBMWnoyalVnald4UkhCM1gyWnVVV1d1T09PZnpXM01LaE8ybHEvZi9DdS8wYk83c0x0MCt3U2ZMSU91TFcKcW90blZtRmxMMytqTy82WDNDKzBERHk5aUtwbXJjVDBnWGZLemE1dHJRSURBUUFCb0FBd0RRWUpLb1pJaHZjTgpBUUVMQlFBRGdnRUJBR05WdmVIOGR4ZzNvK21VeVRkbmFjVmQ1N24zSkExdnZEU1JWREkyQTZ1eXN3ZFp1L1BVCkkwZXpZWFV0RVNnSk1IRmQycVVNMjNuNVJsSXJ3R0xuUXFISUh5VStWWHhsdnZsRnpNOVpEWllSTmU3QlJvYXgKQVlEdUI5STZXT3FYbkFvczFqRmxNUG5NbFpqdU5kSGxpT1BjTU1oNndLaTZzZFhpVStHYTJ2RUVLY01jSVUyRgpvU2djUWdMYTk0aEpacGk3ZnNMdm1OQUxoT045UHdNMGM1dVJVejV4T0dGMUtCbWRSeEgvbUNOS2JKYjFRQm1HCkkwYitEUEdaTktXTU0xMzhIQXdoV0tkNjVoVHdYOWl4V3ZHMkh4TG1WQzg0L1BHT0tWQW9FNkpsYWFHdTlQVmkKdjlOSjVaZlZrcXdCd0hKbzZXdk9xVlA3SVFjZmg3d0drWm89Ci0tLS0tRU5EIENFUlRJRklDQVRFIFJFUVVFU1QtLS0tLQo=
+  signerName: kubernetes.io/kube-apiserver-client
+  expirationSeconds: 86400  # one day
+  usages:
+  - client auth
+EOF
+
+$ cat app-manager.csr | base64 | tr -d "\n"
+
+$ kubectl apply -f app-manager.yaml
+certificatesigningrequest.certificates.k8s.io/app-manager created
+
+$ kubectl get csr
+NAME          AGE   SIGNERNAME                            REQUESTOR          REQUESTEDDURATION   CONDITION
+app-manager   60s   kubernetes.io/kube-apiserver-client   kubernetes-admin   24h                 Approved,Issued
+
+$ kubectl certificate approve app-manager
+certificatesigningrequest.certificates.k8s.io/app-manager approved
+
+$ kubectl get csr app-manager -o jsonpath='{.status.certificate}'| base64 -d > app-manager.crt
+
+
+
+2. clusterrole : app-access
+$ kubectl create clusterrole app-access --verb=create,list,get,update,delete --resource=deployment,pod,service
+clusterrole.rbac.authorization.k8s.io/app-access created
+
+$ kubectl get clusterrole app-access
+NAME         CREATED AT
+app-access   2022-09-27T08:38:06Z
+
+
+3. clusterrolebinding : app-binding-manager
+$ kubectl create clusterrolebinding app-access-binding --clusterrole=app-access --user=app-manager
+clusterrolebinding.rbac.authorization.k8s.io/app-access-binding created
+
+$ kubectl get clusterrolebinding app-access-binding
+
+$ kubectl describe clusterrolebinding app-access-binding
+
+4. Add to kubeconfig - app-maanger context-switch
+$ kubectl config set-credentials app-manager --client-key=app-manager.key --client-certificate=app-manager.crt --embed-certs=true
+
+$ kubectl config set-context app-manager --cluster=kubernetes --user=app-manager
+
+# user 변경
+$ kubectl config use-context app-manager
+
+# 권한 확인
+$ kubectl get pv
+Error from server (Forbidden): persistentvolumes is forbidden: User "app-manager" cannot list resource "persistentvolumes" in API group "" at the cluster scope
+
+
+
+# 원래 유저로 변경
+$ kubectl config use-context kubernetes-admin@kubernetes

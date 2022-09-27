@@ -1,5 +1,5 @@
 # Kubernetes cluster upgrade
-- kubeadm, kubelet, kubectl을 1.22.4에서 1.23.3 버전으로 업그레이드
+문제 예) kubeadm, kubelet, kubectl을 1.22.4에서 1.23.3 버전으로 업그레이드
 
 # Control-plane Upgrade
 1. Upgrade할 master에 접속 : ssh <master>
