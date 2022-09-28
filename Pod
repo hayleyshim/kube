@@ -14,4 +14,89 @@ $ kubectl get pod -n devpos
 $ kubectl delete pod web
 
 
+# Yaml 템플릿으로 생성
+- nginx 웹 서버 컨테이너를 pod로 동작시키기
+- pod name : web
+- image : nginx:1.14
+- port : 80
+
+$ kubectl run web --image=nginx:1.14 --port=80 --dry-run -o yaml > web.yaml
+$ kubectl get pod -n devops
+$ kubectl delete pod -n devops web
+
+
+# Pod 생성하기 1
+- 작업 클러스터 : k8s
+- 'cka-exam'이라는 namespace를 만들고, 'cka-exam' namespace에 아래와 같은 pod를 생성하시오
+- pod Name: pod-01
+- image: busybox
+- 환경변수 : CERT = "CKA-cert"
+- command: /bin/sh
+- args: -c "while true; do echo $(CERT); sleep 10;done"
+
+$ kubectl config use-context k8s
+$ kubectl create namespace cka-exam
+$ kubectl run pod-01 --image=busybox --dry-run -o yaml > 3-1.yaml
+$ cat 3-1.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-01
+  namespace: cka-exam
+spec:
+  containers:
+  - name: pod-01
+    image: busybox
+    env:
+    - name: CERT
+      value: "CKA-cert"
+    command: ["/bin/sh"]
+    args: ["-c", "while true; do echo $(CERT); sleep 10;done"]
+
+$ kubectl apply -f 3-1.yaml
+
+
+# Pod 로그 확인해서 결과 추출하기
+- 작업 클러스터 : hk8s
+- Pod 'custom-app'의 log를 모니터링하고 'file not found' 메시지를 포함하는 로그 라인을 추출
+- 추출된 결과는 /opt/REPORT/2022/custom-app-log
+
+$ kubectl config use-context hk8s
+
+$ kubectl get pods
+
+$ kubectl logs custom-app
+
+$ kubectl logs custom-app | grep 'file not found' > /opt/REPORT/2022/custom-app-log
+
+$ cat /opt/REPORT/2022/custom-app-log
+
+
+# Static Pod 만들기
+- API 서버 없이 특정 노드에 있는 kubelet에 의해 직접 관리
+- /etc/kubernetes/mainfests/ 디렉토리에 pod yaml 파일을 저장 시 적용됨
+
+- static pod 디렉토리 구성
+
+- 디렉토리 수정시 kubelet 데몬 재실행
+
+- hk8s-w1에 static pod 만들기
+1) ssh로 hk9s-w1 서버 접속
+2) sudo -i로 root 권한 얻기
+3) /etc/kubernetes/manifest 디렉토리에 pod yaml 파일 저장하기
+
+$ kubectl run webserver --image=nginx:1.14 --port=80 --dry-run=client -o yaml > webserver.yaml
+
+$ kubectl get pods -o wide
+
+
+# Static Pod 생성하기
+- hk8s-w1 노드에 nginx
+
+$ ssh hk8s-w1
+$ sudo -i
+$ cat /var/lib/kubelet/config.yaml
+$ cd /etc/kubernetes/manifests
+$ kubectl run nginx-static-pod --image=nginx --port=80 --dry-run=client -o yaml > nginx-static-pod.yaml
+$ kubectl get pods
 
