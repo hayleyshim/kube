@@ -100,3 +100,95 @@ $ cd /etc/kubernetes/manifests
 $ kubectl run nginx-static-pod --image=nginx --port=80 --dry-run=client -o yaml > nginx-static-pod.yaml
 $ kubectl get pods
 
+
+# Multi-container
+- 하나의 Pod에 여러 개의 컨테이너가 포함되어 함께 실행됨
+
+
+
+# Multi-conaiter Pod 생성하기
+- 작업 클러스터 : k8s
+- 4개의 컨테이너를 동작시키는 eshop-frontend pod를 생성하시오
+- pod image : nginx, redis, memcached, consul
+
+$ kubectl run eshop-frontend --image=nginx --dry-run=client -o yaml > 3-2.yaml
+'''3-2.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: eshop-frontend
+spec:
+  containers:
+  - image: nginx
+    name: nginx-container
+  - image: redis
+    name: redis-container
+  - image: memcached
+    name: memcached-container
+  - image: consul
+    name: consul-container
+'''
+
+$ kubectl create -f 3-2.yaml
+$ kubectl get po eshop-frontend
+$ kubectl describe po eshop-frontend
+
+
+# Sidecar-container
+- 기본 컨테이너 기능을 확장하기 위해 사용
+- 본래의 컨테이너는 기본 서비스에 충실하고 추가 기능을 별도의 컨테이너를 이용해 적용
+- 웹서버는 기본 서비스에 충실하고 추가로 생성되는 웹서버 로그는 별도의 사이드 카 컨테이너가 수집하여 외부 log aggregator로 전송하는 형태의 서비스
+
+
+# Sdiecar container pod 생성하기
+- 작업 클러스터 : k8s
+- 현재 운영중인 eshop-cart-app pod의 로그를 kubernetes built-in logging 아키텍처(예: kubectl logs)에 통합하는 로그 스트리밍 사이드카 컨테이너를 운영하시오
+- busybox 이미지를 사용하여 price라는 이름의 사이드카 컨테이너를 기존 eshop-app에 추가합니다.
+- 새 price 컨테이너는 다음과 같은 command를 실행해야 합니다.
+  command: /bin/sh, -c, "tail -n+1, -f /var/log/cart-app.log"
+- /var/log에 마운트 될 볼륨을 사용하여 사이드카 컨테이너에서 로그 파일 cart-app.log를 사용해야 합니다.
+- eshop-cart-app pod와 cart-app 컨테이너를 수정하지 마시오.
+
+# 문제풀이
+1. eshop-cart-app pod --> yaml
+2. side-car container 추가
+3. image : busybox
+4. command : "/bin/sh", "-c", "tail -n+1 -f /var/log/cart-app.log"
+5. volume mount
+
+
+$ kubectl get pod eshop-cart-app
+
+$ kubectl get pod eshop-cart-app -o yaml > 3-3.yaml
+$ vi 3-3.yaml
+'''3-3.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: eshop-cart-app
+spec:
+  containers:
+  - command:
+    - /bin/sh
+    - -c
+    - 'i=1;while :;do echo -e "$i: Price: $((RANDOM % 10000 +1))" >> /var/log/cart-app.log; i=$((i+1)); sleep 2; done'
+    image: busybox
+    name: cart-app
+    volumeMounts:
+    - mountPath: /var/log
+      name: varlog
+  - name: price
+    image: busybox
+    args: [/bin/sh, -c, 'tail -n+1, -f /var/log/cart-app.log']
+    volumeMounts:
+    - name: varlog
+      volumeMounts:
+      - name: varlog
+        moutnPath: /var/log
+  volumes:
+  - emptyDir: {}
+    name: varlog
+      
+'''
+
+$ kubectl apply -f 3-3.yaml
