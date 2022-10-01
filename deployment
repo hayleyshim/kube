@@ -1,0 +1,192 @@
+# Deployment 
+- 쿠버네티스 클러스터에서 애플리케이션을 배포하는 가장 일반적인 방식
+- replicaset 컨트롤러를 통해 replica 수 보장 및 scaling 가능
+- rolling update 또는 roll back 지원
+- 고가용성, 24/7 서비스 보장
+
+
+$ cat > deploy-nginx.yaml
+"""
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deploy-nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webui
+  template:
+    metadata:
+      labels:
+        app: webui
+    spec:
+      containers:
+      - name: nginx-container
+        image: nginx:1.14
+"""
+
+$ kubectl apply -f deploy-nginx.yaml
+
+$ kubectl get pods
+
+$ kubectl get pods --show-labels
+
+$ kubectl get rs deploy-nginx-79488c9578 -o wide
+NAME                      DESIRED   CURRENT   READY   AGE    CONTAINERS        IMAGES       SELECTOR
+deploy-nginx-79488c9578   2         2         2       3m2s   nginx-container   nginx:1.14   app=webui,pod-template-hash=79488c9578
+
+$ kubectl delete pod deploy-nginx-79488c9578-2ww6c
+
+# 애플리케이션 Scaling
+- Deployment는 ReplicaSet 컨트롤러를 이용해 Pod scaling을 지원
+
+$ kubectl scale deployment deploy-nginx --replicas=5
+
+$ kubectl scale deployment deploy-nginx --replicas=3
+
+
+# 문제
+- Deployment & Scaling
+- 작업 클러스터 : k8x
+
+a.webserver라는 이름으로 deployment를 생성하시오
+- name: webserver
+- 2 replicas
+- label: app_env_stage=dev
+- container name: webserver
+- container image: nginx:1.14
+
+
+$ kubectl create deployment webserver --image=nginx:1.14 --replicas=2 --dry-run=client -o yaml > webserver.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webserver
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app_env_stage: dev
+  template:
+    metadata:
+      labels:
+        app_env_stage: dev
+    spec:
+      containers:
+      - image: nginx:1.14
+        name: webserver
+
+$ kubectl apply -f webserver.yaml
+
+$ kubectl get deployments.apps
+
+$ kubectl get pod --show-labels
+
+
+
+b. 다음 webserver deployment의 pod수를 3개로 확장하시오
+
+$ kubectl scale deployment webserver --replicas=3
+
+$ kubectl get pod --show-labels
+
+
+# Rolling Update & Roll back
+
+- Rolling Update : 동작중인 애플리케이션의 서비스 중단 없이 점진적으로 Pod 업데이트
+
+$ kubectl set image deployment <deploy_name> <container_name>=<new_version_image> --record
+
+$ cat deploy-nginx.yaml
+
+$ kubectl set image deploy deploy-nginx nginx-container=nginx:1.15 --record
+
+$ kubectl describe pod deploy-nginx-78f7777c6-s2rwn
+
+$ kubectl get rs 
+
+- Rollback : 동작중인 애플리케이션 서비스 중단 없이 이전 버전으로 되돌리기
+
+$ kubectl rollout history deployment <deploy name>
+$ kubectl rollout undo deployment <deploy name>
+$ kubectl rollout undo deployment <deploy name> --to-revision=NUMBER
+
+$ kubectl rollout history deployment deploy-nginx
+
+$ kubectl rollout undo deployment deploy-nginx --to-revision=2
+
+$ kubectl describe pod deploy-nginx-57849979cc-6dxfz
+
+$ kubectl rollout history deployment deploy-nginx
+
+$ kubectl delete deployment deploy-nginx
+
+
+# 문제
+- Rolling update & Roll back
+- 작업 클러스터 : k8s
+- Deployment를 이용해 nginx 파드를 3개 배포한 다음 컨테이너 이미지 버전을 rolling update하고 update record를 기록합니다. 마지막으로 컨테이너 이미지를 previous version으로 roll back 합니다. 
+- name : eshop-payment
+- image : nginx
+- image version : 1.16
+- update image version : 1.17
+- label: app=payment, environment=production
+
+$ kubectl create deployment eshop-payment --image=nginx:1.16 --replicas=3 --dry-run=client -o yaml > 3-5.yaml
+
+vi 3-5.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eshop-payment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: payment
+      environment: production
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: payment
+        environment: production
+    spec:
+      containers:
+      - image: nginx:1.16
+        name: nginx
+        resources: {}
+status: {}
+
+$ kubectl apply -f 3-5.yaml --record
+
+$ kubectl set image deployment eshop-payment nginx=nginx:1.17 --record
+
+$ kubectl rollout history deployment eshop-payment
+
+$ kubectl rollout undo deployment eshop-payment
+
+$ kubectl rollout history deployment eshop-payment
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
