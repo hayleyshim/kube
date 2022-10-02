@@ -19,7 +19,6 @@ $ kubectl get nodes
 $ kubectl logs poc | grep 'file not found' > /var/CKA2022/CUSTOM-LOG001 파일에 저장
 
 
-
 # 클러스터 리소스 모니터링
 - pod가 사용하는 CPU나 Memory 리소스 정보 보기
 $ kubectl top pods --sort-by=cpu
@@ -67,3 +66,82 @@ $ kubectl top pods
 $ kubectl top pods --sort-by=cpu
 
 $ echo 'campus-01' > /var/CKA2022/custom-app-log 
+
+
+
+# Worker Node 동작
+- Installing runtime : runtime, docker engine, containerd, CRI-O
+- kubelet
+- kubeproxy
+- cni
+
+$ kubectl get pod -n kube-system
+
+$ ssh hk8s-m
+
+/ # cd /etc/kubernetes/manifests/
+/ # ls
+/ # replicas 3 ==> 5
+/ # vi kube-controller-manager.yaml
+
+# 문제
+- Worker Node 동작 문제 해결
+- 작업 클러스터 : hk8s
+- Worker Node 동작 문제 해결
+- hk8s-w2 라는 이름의 worker node가 현재 NotReady 상태에 있습니다. 이 상태의 원인을 조사하고 hk8s-w2 노드를 Ready 상태로 전환하여 영구적으로 유지되도록 운영하시오.
+
+$ kubectl get nodes 
+
+$ ssh hk8s-w2
+$ sudo -i
+/# docker ps
+/$ systemctl status docker
+/# systemctl status kubelet
+/# systemctl enable --now kubelet 
+/# systemctl status kubelet
+/# exit
+/# exit
+
+$ kubectl get nodes
+
+
+# 문제
+- worker node 동작 문제 해결
+- hk8s-w2 라는 이름의 worker node가 현재 notready 상태에 있다. 이를 되돌려놓아라
+
+$ kubectl get nodes
+$ ssh hk8s-w2
+/# sudo -i
+/# docker ps
+/# systemctl status docker
+/# systemctl enable --now docker
+/# systemctl status docker
+
+/# systemctl status kubelet
+/# exit
+/# exit
+$ kubectl get nodes
+
+$ kubectl get pod -n kube-system -o wide | grep kube-proxy
+$ kubectl get pod -n kube-system -o wide | grep cal
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
