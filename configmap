@@ -1,0 +1,101 @@
+# ConfigMap
+- 컨테이너 구성 정보를 한곳에 모아서 관리
+
+$ kubectl create configmap NAME [--from-file=source] [--from-literal=key1=value1]
+
+$ kubectl create configmap CONFIG_NAME --from-literal=id=b2021002 --from-literal=class=bigdata
+$ kubectl create configmap CONFIG_NAME --from-file=text.file
+$ kubectl create configmap CONFIG_NAME --from-file=mydata=text.file
+$ kubectl create configmap CONFIG_NAME --from-file=/configmap.dir/
+
+
+# 문제
+- ConfigMap으로 환경변수 전달
+- 작업 클러스터 : k8s
+- 다음의 변수를 configMap eshop으로 등록하세요
+--DBNAME: mysql
+--USER : admin
+
+- 등록할 eshop configMap
+
+$ kubectl create configmap eshop --from-literal=DBNAME=mysql --from-literal=USER=admin
+
+$ kubectl get configmaps
+
+$ kubectl describe configmaps eshop 
+
+$ kubectl run eshop-configmap --image=nginx --dry-run=client -o yaml > eshop.yaml
+
+eshop.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: eshop-configmap
+spec:
+  containers:
+  - image: nginx
+    name: eshop-configmap
+    env:
+     - name: DB
+       valueFrom:
+         configMapKeyRef:
+           name: eshop
+           key: DBNAME
+
+$ kubectl apply -f eshop.yaml
+
+$ kubectl get pod eshop-configmap
+
+$ kubectl exec -it eshop-configmap -- /bin/bash
+
+root@eshop-configmap:/# env
+KUBERNETES_SERVICE_PORT_HTTPS=443
+KUBERNETES_SERVICE_PORT=443
+HOSTNAME=eshop-configmap
+PWD=/
+PKG_RELEASE=1~bullseye
+HOME=/root
+KUBERNETES_PORT_443_TCP=tcp://10.96.0.1:443
+DB=mysql
+NJS_VERSION=0.7.6
+TERM=xterm
+SHLVL=1
+KUBERNETES_PORT_443_TCP_PROTO=tcp
+KUBERNETES_PORT_443_TCP_ADDR=10.96.0.1
+KUBERNETES_SERVICE_HOST=10.96.0.1
+KUBERNETES_PORT=tcp://10.96.0.1:443
+KUBERNETES_PORT_443_TCP_PORT=443
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+NGINX_VERSION=1.23.1
+_=/usr/bin/env
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

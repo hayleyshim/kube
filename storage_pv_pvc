@@ -1,0 +1,168 @@
+# Storage Class
+- k8s volume 운영 환경 분리
+- 기본 스토리지 운영 환경을 분리
+- 관리자 : 스토리지 구성
+- 개발자 : 필요한만큼 요구
+- PersistentVolumes
+- PersistentVolumeClaims
+- dynamic provisiong : EKS, AKS, GKE 
+- storage class :  disk 생성 시, storage의 type을 알려주는 것 
+- 각 StorageClass에는 해당 클래스에 속한 PersistentVolume을 동적으로 프로비저닝해야 할 때 사용
+
+https://kubernetes.io/docs/concepts/storage/storage-classes/
+
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: standard
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp2
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+mountOptions:
+  - debug
+volumeBindingMode: Immediate
+
+
+- dynamic provisioning 
+-- 온-디멘드 방식으로 스토리지 볼륨 생성
+-- 사용자가 스토리지를 요청하면 자동으로 프로비저닝 
+-- 하나 이상의 StorageClass 오브젝트를 사전 생성
+
+- StorageClass
+-- 스토리지의 classes를 설명
+-- StorageClass에는 해당 StorageClass에 속하는 PV를 동적으로 프로비저닝 할 때 사용되는 provisioner, parameters 와 reclaimPolicy 필드가 포함
+-- reclainPolicy가 지정되지 않으면 기본값은 delete
+-- 스토리지 클래스에 속하는 볼륨을 설명하는 parameters
+
+- 프로비저너
+-- 각 스토리지클래스에는 PV 프로비저닝에 사용되는 볼륨 플러그인을 결정하는 프로비저너가 있다. 이 필드는 반드시 지정해야 한다.
+
+
+# Persistent Volume
+- 실제 하드웨어 볼륨을 연결
+- PV 만들기
+
+# 문제
+- 작업클러스터 : hk8s
+- pv001라는 이름으로 size 1Gi, access mode ReadWriteMany를 사용하여 persistent volume을 생성합니다.
+- volume type은 hostPath이고 위치는 /tmp/app-config 입니다
+
+- https://kubernetes.io/docs/concepts/storage/volumes/
+- https://kubernetes.io/docs/concepts/storage/persistent-volumes/
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv0001
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany 
+  hostPath:
+    path: /tmp/app-config
+
+
+$ cat > pv001.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv0001
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany 
+  hostPath:
+    path: /tmp/app-config
+
+$ ls -l pv001.yaml
+$ cat pv001.yaml
+$ kubectl get pv
+
+$ kubectl apply -f pv001.yaml
+$ kubectl get pv
+
+# Persistent Volume Claim
+
+# 문제
+- PVC를 사용하는 애플리케이션 pod 운영
+- 작업 클러스터 : k8s
+- 다음의 조건에 맞는 새로운 PVC 생성하시오
+- Name : pv-volume
+- Class : app-hostpath-sc
+- Capacity: 10Mi
+
+
+$ kubectl config use-context k8s
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pv-volume
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: app-hostpath-sc
+
+
+$ kubectl apply -f pvc.yaml
+$ kubectl get pvc
+
+
+- 앞서 생성한 pv-volume PVC을 mount하는 Pod를 생성하시오
+- Name: web-server-pod
+- image : nginx
+- Mount Path : /usr/share/nginx.html
+- volume에서 readwritemany 액세스 권한을 가지도록 하시오
+
+https://kubernetes.io/docs/concepts/storage/persistent-volumes/
+
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-server-pod
+spec:
+  containers:
+    - name: myfrontend
+      image: nginx
+      volumeMounts:
+      - mountPath: "/usr/share/nginx/html"
+        name: mypd
+  volumes:
+    - name: mypd
+      persistentVolumeClaim:
+        claimName: pv-volume
+
+
+$ cat > pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-server-pod
+spec:
+  containers:
+    - name: myfrontend
+      image: nginx
+      volumeMounts:
+      - mountPath: "/usr/share/nginx/html"
+        name: mypd
+  volumes:
+    - name: mypd
+      persistentVolumeClaim:
+        claimName: pv-volume
+
+$ kubectl apply -f pod.yaml
+
+$ kubectl get pod web-server-pod
+
+$ kubectl describe pod web-server-pod
+
+ 
+

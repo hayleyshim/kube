@@ -1,0 +1,70 @@
+# Pod Schedule: Node Selector
+- Worker node에 할당된 label을 이용해 node를 선택
+- node label 설정
+
+$ kubectl label nodes <노드 이름> <레이블 키>=<레이블 값>
+$ kubectl label nodes node1.example.com gpu=true
+$ kubectl get nodes -L gpu
+
+$ kubectl get nodes --show-labels
+
+$ kubectl label node k8s-worker2 gpu=true
+
+$ kubectl get nodes -L gpu
+
+$ kubectl label node k8s-worker1 gpu=false --overwrite
+
+$ kubectl get nodes -L gpu
+
+$ vi /data/cka/pod-tensorflow.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tensorflow-gpu
+spec:
+  nodeSelector:
+    gpu: "true"
+  containers:
+  - name: tensorflow
+    image: tensorflow/tensorflow:nightly-jupyter
+    ports:
+    - containerPort: 8888
+      protocol: TCP
+
+$ kubectl apply -f /data/cka/pod-tensorflow.yaml
+
+$ kubectl get nodes -L gpu
+
+
+# 문제
+- 작업 클러스터 : k8s
+- 다음의 조건으로 pod를 생성하세요
+- Name : eshop-store
+- Image : nginx
+- Node selector: disktype=ssd
+
+$ kubectl get nodes -L disktype
+
+$ kubectl run eshop-store --image=nginx --dry-run=client -o yaml > eshop.yaml
+
+$ vi eshop.yaml >> nodeSelector 추가
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: eshop-store
+spec:
+  nodeSelector:
+    disktype: "ssd"
+  containers:
+  - image: nginx
+    name: eshop-store
+
+
+$ kubectl apply -f eshop.yaml
+
+$ kubectl get pods eshop-store -o wide
+
+
+

@@ -1,0 +1,147 @@
+# Volume 
+- volume은 k8s 스토리지의 추상화 개념
+- 컨테이너는 pod에 바인딩되는 볼륨을 마운트하고 마치 로컬 파일시스템에 있는 것처럼 스토리지에 접근한다
+- k8s 스토리지
+- 컨테이너 단위로 mount
+
+https://kubernetes.io/docs/concepts/storage/volumes/
+
+
+
+# Volume mount - emptyDir
+- emptyDir 볼륨은 빈 디렉토리로 시작
+- pod 내부에서 실행중인 애플리케이션은 필요한 모든 파일을 작성
+- pod를 삭제하면 볼륨의 내용이 손실됨
+- 동일한 pod에서 실행되는 컨테이너 간에 파일을 공유할 때 유용
+
+# 문제
+- emptyDir Volume을 공유하는 multi-pod 운영
+- 작업 클러스터 : k8s
+- 다음 조건에 맞춰서 nginx 웹서버 pod가 생성한 로그파일을 받아서 STDOUT으로 출력하는 busybox컨테이너를 운영하시오
+- Pod Name: weblog
+- Web container:
+  - image: nginx:1.17
+  - volume mount : /var/log/nginx
+  - readwrite
+- log container:
+  - image: busybox
+  - command: /bin/sh, -c, "tail -n+1 -f /data/access.log"
+  - volume mount : /data
+  - readonly
+
+
+$ kubectl config use-context k8s
+$ kubectl run weblog --image=nginx:1.17 --dry-run=client -o yaml > weblog.yaml
+
+weblog.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: weblog
+spec:
+  containers:
+  - image: nginx:1.17
+    name: web
+    volumeMounts:
+    - mountPath: /var/log/nginx
+      name: log-volume
+  - image: busybox
+    name: log
+    args: [/bin/sh, -c, "tail -n+1 -f /data/access.log"]
+    volumeMounts:
+    - mountPath: /data
+      name: log-volume
+      readOnly: true
+  volumes:
+  - name: log-volume
+    emptyDir: {}
+
+$ kubectl get pods
+
+$ kubectl describe pod weblog
+
+$ kubectl get pods -o wide
+10.244.2.121
+
+$ ssh k8s-worker1
+
+
+# Volume mount - hostPath
+- 노드의 파일시스템의 디렉토리나 파일을 컨테이너에 마운트
+- 노드에 디렉토리나 파일을 생성하여 마운트 가능
+- hostPath는 type 지시어를 이용해 mount 구성의 요구를 추가할 수 있다.
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pd
+spec:
+  containers:
+  - image: registry.k8s.io/test-webserver
+    name: test-container
+    volumeMounts:
+    - mountPath: /test-pd
+      name: test-volume
+  volumes:
+  - name: test-volume
+    hostPath:
+      path: /data
+
+# 문제
+- 작업 클러스터 : k8s
+- /data/cka/fluentd.yaml 파일에 다음 조건에 맞게 볼륨 마운트를 설정하시오
+- worker node의 도커 컨테이너 디렉토리를 동일 디렉토리로 pod에 마운트하시오
+- worker node의 /var/log 디렉토리를 fluentd pod에 동일 이름의 디렉토리 마운트 하시오
+
+$ ssh k8s-worker1
+# cd /var/lib/
+# ls
+# cd docker
+# sudo -i
+# cd /var/lib/docker
+# cd containers/
+# ls -> fleuntd가 수집해주는 컨테이너 정보
+
+# 문제
+- hostpath 볼륨 마운트 설정
+- 작업 클러스터 : k8s
+- /data/cka/fluentd.yaml 파일
+
+$ kubectl get nodes
+$ cat /data/cka/fluentd.yaml
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluentd
+spec:
+  selector:
+    matchLabels:
+      name: fluentd
+  template:
+    metadata:
+      labels:
+        name: fluentd
+    spec: 
+      containers:
+      - name: fluentd
+        image: fluentd
+        volumeMounts:
+        - mountPath: /var/lib/docker/containers
+          name: dockercontainerdir
+        - mountPath: /var/log
+          name: varlogdir          
+      volumes:
+      - name: dockercontainerdir
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: varlogdir
+        hostPath:
+          path: /var/log       
+
+$ kuectl get pod | grep fluentd
+
+$ kubectl describe pod fluentd-xxx
+
+
+
