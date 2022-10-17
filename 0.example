@@ -118,6 +118,18 @@ $ kubectl uncordon <NODE_NAME>
 
 14. 특정 Pod의 특정 로그를 추출해서 파일로 저장
 - 특정 로그 내용은 문제에서 주어진다
-
 $ kubectl logs <POD_NAME> | grep '로그 내용' > 1.txt
+
+
+15. NodeSelector를 활용하여 특정 Node에 Pod 배포가
+
+16. Deployment의 이미지를 변경하고 변경 사항을 기록
+
+$ kubectl set image deployment <DEPLOYMENT_NAME> <CONTAINER_NAME>=<DOCKER_IMAGE> --record
+
+$ kubectl edit 명령을 통해 이미지를 변경해도 된다
+
+
+17. Deployment Scale
+$ kubectl scale deployment <DEPLOYMENT_NAME> --replicas=5
 
