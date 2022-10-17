@@ -101,6 +101,17 @@ $ kubectl create clusterrolebinding <CLUSTER_ROLE_BINDING_NAME> --role=<CLUSTER_
 10. Node 하나가 NotReady 상태인데 Ready 상태가 되도록 문제 해결
 - 문제가 되는 Node의 kubectl이 shutdown 상태였고 systemctl enable --now kubelet 명령으로 kubelet을 실행하여 문제를 해결하였다
 
+# 제대로 생성되었는지 권한 체크 방법
+$ kubectl auth can-i create deployment --as 'system:serviceaccount:<NAMESPACE>:<SERVICE_ACCOUNT_NAME>'
+yes
+$ kubectl auth can-i create statefulset --as 'system:serviceaccount:<NAMESPACE>:<SERVICE_ACCOUNT_NAME>'
+yes
+$ kubectl auth can-i create daemonset --as 'system:serviceaccount:<NAMESPACE>:<SERVICE_ACCOUNT_NAME>'
+yes
+$ kubectl auth can-i create pod --as 'system:serviceaccount:<NAMESPACE>:<SERVICE_ACCOUNT_NAME>'
+no
+$ kubectl auth can-i delete deployment --as 'system:serviceaccount:<NAMESPACE>:<SERVICE_ACCOUNT_NAME>'
+no
 
 11. Node의 모든 Pod를 내렸다가 다시 Reschedule 상태로 만들기
 $ kubectl drain <NODE_NAME> --ignore-daemonsets
@@ -121,7 +132,7 @@ $ kubectl uncordon <NODE_NAME>
 $ kubectl logs <POD_NAME> | grep '로그 내용' > 1.txt
 
 
-15. NodeSelector를 활용하여 특정 Node에 Pod 배포가
+15. NodeSelector를 활용하여 특정 Node에 Pod 배포
 
 16. Deployment의 이미지를 변경하고 변경 사항을 기록
 
