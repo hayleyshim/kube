@@ -1,0 +1,123 @@
+1. HostPath 타입 PV 생성
+- name, capacity, storage 문제가 문제에 주어진다
+- storageClass는 명시할 필요가 없다고 문제에 주어진다
+- hostPath가 주어진다
+
+2. ETCD backup & restore
+- context를 변경할 필요없이 User Console에서 진행하라고 문제에 주어진다
+- ps -ef | grep etcd를 통해 살펴보면 해당 Console에 ETCD가 실행 중인 것을 알 수 있다
+- 백업의 경우 어느 위치에 백업하면 되는지 지정해준다
+-- ex) 백업 생성 위치 : /etc/backup/snapshot.db
+- restore의 경우 이전 백업 파일 위치를 알려주지만 다른 어떤 정보도 알려주지 않는다
+-- ls -al 명령어를 통해 etcd의 data directory를 살펴보면 gid와 uid etcd인 것을 확인할 수 있고 해당 디렉토리의 권한이 700인 것을 확인할 수 있다
+-- 사용해야 할 cacert, cert, key 파일의 위치는 문제에서 주어진다
+
+3. Ingress & Service 생성 및 연결
+- Pod가 주어지고 그것과 연결할 Service를 생성해야 한다(Port와 Type은 주어진다)
+- Ingress를 생성하여 <Internal IP>/hello 와 같이 접속하여 Pod에 접속할 수 있는지 확인한다
+-- ex) curl -kL /hello
+
+4. NetworkPolicy를 생성
+- 특정 Namespace(my-app)의 모든 Pod가 다른 특정 Namespace(big-corp)에 있는 Pod에서 특정 포트(8080)로만 접근할 수 있도록 설정하라는 문제다
+- 아래와 같이 namespaceSelector 를 활용한다
+- spec.podSelector 는 필수값으로 비워두면 된다
+- NetworkPolicy 이름과 Port, Namespace는 문제에서 주어진다
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-network-policy 
+  namespace: my-app
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: big-corp
+    ports:
+      - protocol: TCP
+        port: 8080
+
+
+5. 특정 Label이 붙은 Pod들 중에 CPU가 가장 높은 Pod 찾기
+$ kubectl top pods -l <KEY>=<VALUE> --sort-by='cpu'
+$ kubectl top pods -l <KEY>=<VALUE> --no-headers --sort-by='cpu' | head -1
+
+6. ControlPlane Upgrade
+- 업그레이드 버전을 명시해준다 (v1.24.1 -> v1.24.2)
+- 반드시 ControlPlan Node만 진행해야 하며, 절대 Worker Node는 업그레이드 해서는 안된다
+
+7. PVC 생성 및 Pod 연동
+- PVC만 storageClass를 지정하여 생성한 후 Pod에 volumes와 volumeMounts를 설정하여 연결한다
+- PV는 별도 생성하지 않으며, 지정된 storageClass를 통해 동적으로 볼륨이 프로비저닝되어 연결된다
+
+8. Pod 내에 모니터링을 위한 sidecar 컨테이너 추가
+- emptyDir로 volumes을 선언하고 기존 container와 새로 추가한 sidecar container에 volumeMounts를 설정하여 /var/log 디렉토리를 마운트한다
+- sidecar Container는 busybox image를 사용한다
+- sidecar Container에 /bin/sh -c tail -n+1 -F /var/log/app.log 같은 형태의 명령어를 지정해야 한다
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app
+spec:
+  containers:
+  - name: monitoring
+    image: monitoring
+    volumeMounts:
+    - mountPath: "/var/log"
+      name: log-volume
+  - name: sidecar
+    image: busybox
+    volumeMounts:
+    - mountPath: "/var/log"
+      name: log-volume
+    command: ["/bin/bash", "-c", "tail -n+1 -F /var/log/app.log"]
+  volumes:
+  - name: log-volume
+    emptyDir: {}
+
+
+9. 지정된 Namespace에 Service Account와 ClusterRole을 생성하고 ClusterRoleBinding으로 연결
+- ClusterRole 정책
+-- verb = create
+-- resources = deployment, statefulset, daemonset
+- ServiceAccount와 ClusterRole 이름은 지정해주지만 ClusterRoleBinding 이름은 주어지지 않기 때문에 임의로 정하면 된다
+- 생성은 아래 명령어를 참고한다
+
+# Service Account 생성
+$ kubectl create serviceaccount <SERVICE_ACCOUNT_NAME> --namespace=<NAMESPACE>
+
+# ClusterRole 생성
+$ kubectl create clusterrole <CLUSTER_ROLE_NAME> --verb=<VERB> --resource=<RESOURCE_NAME>
+
+# ClusterRoleBinding 생성
+$ kubectl create clusterrolebinding <CLUSTER_ROLE_BINDING_NAME> --role=<CLUSTER_ROLE_NAME> --serviceaccount=<NAMESPACE>:<SERVICE_ACCOUNT_NAME>
+
+
+10. Node 하나가 NotReady 상태인데 Ready 상태가 되도록 문제 해결
+- 문제가 되는 Node의 kubectl이 shutdown 상태였고 systemctl enable --now kubelet 명령으로 kubelet을 실행하여 문제를 해결하였다
+
+
+11. Node의 모든 Pod를 내렸다가 다시 Reschedule 상태로 만들기
+$ kubectl drain <NODE_NAME> --ignore-daemonsets
+
+$ kubectl uncordon <NODE_NAME>
+
+
+12. Pod 배포가 가능한 Node의 숫자 기록
+- Ready 상태이며 taint가 인 Node를 확인한다.
+
+
+13. Multi 컨테이너 Pod 생성
+- container-1, container-2 정보를 주고, 해당 정보를 기반으로 하나의 Pod를 생성하는 문제다
+
+
+14. 특정 Pod의 특정 로그를 추출해서 파일로 저장
+- 특정 로그 내용은 문제에서 주어진다
+
+$ kubectl logs <POD_NAME> | grep '로그 내용' > 1.txt
+
