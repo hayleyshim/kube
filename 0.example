@@ -3,6 +3,34 @@
 - storageClass는 명시할 필요가 없다고 문제에 주어진다
 - hostPath가 주어진다
 
+Q) Create a persistent volume with name app-config, of capacity 2Gi and access mode ReadWriteOnce.
+The type of volue is hostPath and its location is /var/app-config
+
+
+A)
+vi 14.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+ name: app-config
+spec:
+ capacity:
+   storage: 2Gi
+ accessModes:
+ - ReadWriteOnce
+ hostPath:
+   path: /var/app-config
+
+
+$ kubectl apply -f 14.yaml
+$ kubectl get PV
+
+- PV 생성
+- Access Mode 주의
+
+
+
+
 2. ETCD backup & restore
 - context를 변경할 필요없이 User Console에서 진행하라고 문제에 주어진다
 - ps -ef | grep etcd를 통해 살펴보면 해당 Console에 ETCD가 실행 중인 것을 알 수 있다
@@ -12,10 +40,84 @@
 -- ls -al 명령어를 통해 etcd의 data directory를 살펴보면 gid와 uid etcd인 것을 확인할 수 있고 해당 디렉토리의 권한이 700인 것을 확인할 수 있다
 -- 사용해야 할 cacert, cert, key 파일의 위치는 문제에서 주어진다
 
+Q) First, create a snapshot of the existing etcd instance running at https://127.0.0.1:2379, 
+saving the snapshot to /data/etcd-snapshot.db.
+The following TLS certificates/key are supplied for connecting to the server with etcdctl:
+- CA certificate: /etc/kubernetes/pki/etcd/ca.crt 
+- Client certificate: /etc/kubernetes/pki/etcd/server.crt
+- Client key: /etc/kubernetes/pki/etcd/server.key
+
+Next, restore an existing, previous snapshot located at /data/etcd-snapshot-previous.db
+
+A)
+$ ssh mk8s-master-0
+$ sudo -i
+$ ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 \
+--cacert=/etc/kubernetes/pki/etcd/ca.crt \
+--cert=/etc/kubernetes/pki/etcd/server.crt \
+--key=/etc/kubernetes/pki/etcd/server.key \
+snapshot save /data/etcd-snapshot.db
+
+$ ETCDCTL_API=3 etcdctl --data-dir=/var/lib/etcd-previous snapshot restore /data/etcd-snapshot-previous.db
+tree /var/lib/etcd-previous/
+
+vi /etc/kubernetes/manifests/etcd.yaml
+..
+   - hostPath:
+        path: /var/lib/etcd-previous
+        type: DirectoryOrCreate
+     name: etcd-data
+
+exit
+exit
+
+- 마스터 노드에 접속하여 etcd 백업 진행
+- Restore 시에는 해당 파일의 위치를 확인하고 파일명은 명시되지 않았으므로 임의로 생성(/var/lib/etcd-previous)
+- 마스터 노드의 /etc/Kubernetes/manifests/etcd.yaml에서 맨 아래에 etcd-data에 대한 path를 수정
+- static pod 이므로 yaml 저장하면 반영됨
+
+
+
+
 3. Ingress & Service 생성 및 연결
 - Pod가 주어지고 그것과 연결할 Service를 생성해야 한다(Port와 Type은 주어진다)
 - Ingress를 생성하여 <Internal IP>/hello 와 같이 접속하여 Pod에 접속할 수 있는지 확인한다
 -- ex) curl -kL /hello
+
+Q) Ingress 구성
+name: ping
+namespace: internal-ing 
+/hi 로 연결했을 때 hi 서비스로 연결
+port: 80
+
+curl로 확인까지 해야 함
+
+A)
+vi 12.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+ name: ping
+ namespace: internal-ing
+spec:
+  rules:
+  - http:
+       paths:
+       - path: /hi
+          pathType: Prefix
+          backend:
+            service:
+              name: hi
+              port:
+                number: 80
+
+$ kubectl apply -f 12.yaml
+$ kubectl get ingress -n internal-ing
+$ kubectl get svc -n internal-ing
+$ curl k8s-worker-1:30080/hi
+
+
+
 
 4. NetworkPolicy를 생성
 - 특정 Namespace(my-app)의 모든 Pod가 다른 특정 Namespace(big-corp)에 있는 Pod에서 특정 포트(8080)로만 접근할 수 있도록 설정하라는 문제다
@@ -42,19 +144,140 @@ spec:
         port: 8080
 
 
-5. 특정 Label이 붙은 Pod들 중에 CPU가 가장 높은 Pod 찾기
-$ kubectl top pods -l <KEY>=<VALUE> --sort-by='cpu'
-$ kubectl top pods -l <KEY>=<VALUE> --no-headers --sort-by='cpu' | head -1
+Q) Create a new NetworkPolicy named allow-port-from-namespace in the existing namespace devops.
+Ensure that the new NetworkPolicy allows Pods in namespaces migops(using label team=migops) 
+to connect to port 80 of Pods in namespace devops. Further ensure that the new NetworkPolicy: 
+does not allow access to Pods, which don't listen on port 80 does not allow from Pods, which are 
+not in namespace migops
 
-6. ControlPlane Upgrade
+A)
+vi 13.yaml
+vi policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+ name: allow-port-from-namespace
+ namespace: devops
+spec:
+ podSelector: {}
+ policyTypes:
+ - Ingress
+ ingress:
+ - from:
+    - namespaceSelector:
+      matchLabels:
+        team: migops
+    ports:
+    - protocol: TCP
+      port:80
+
+$ kubectl apply -f 13.yaml
+
+- 특정 Namespace에서 한해서 ingress 적용하는 형태
+- Network Policy에서 engress 항목은 제거하고 Ingress 셋업 진행
+- 특정 Pod가 아니라면 podSelector에서 {} 처리
+
+
+
+5. ControlPlane Upgrade
 - 업그레이드 버전을 명시해준다 (v1.24.1 -> v1.24.2)
 - 반드시 ControlPlan Node만 진행해야 하며, 절대 Worker Node는 업그레이드 해서는 안된다
 
-7. PVC 생성 및 Pod 연동
+Q) Given an existing Kubernetes cluster running version 1.24.1, 
+upgrade all of the kubernetes control plan and node components on the master node only to version 1.24.2.
+Be sure to drain the master node before upgrading it and uncordon it after the upgrade.
+
+A)
+$ kubectl get nodes(control plane 1개 확인)
+$ ssh ek8s-master-0
+$ sudo -i
+
+# kubeadm 업그레이드
+$ apt-mark unhold kubeadm && apt-get update && apt-get install -y kubeadm=1.24.2-00 && apt-mark hold kubeadm
+
+# node components 업그레이드
+$ kubeadm upgrade plan v1.24.2
+$ kubeadm upgrade apply v1.24.2
+
+# 노드 drain
+$ kubectl drain ek8s-master-0 --ignore-daemonsets
+
+# kubelet과 kubectl 업그레이드
+$ apt-mark unhold kubelet kubectl && apt-get update && apt-get install -y 
+kubelet=1.24.2-00 kubectl=1.24.2-00 && apt-mark hold kubelet kubectl
+
+$ systemctl daemon-reload
+$ systemctl restart kubelet
+
+# 노드 uncordon
+$ sudo kubectl uncordon ek8s-master-0
+$ kubectl get nodes(버전 업데이트 결과 확인)
+
+
+6. PVC 생성 및 Pod 연동
 - PVC만 storageClass를 지정하여 생성한 후 Pod에 volumes와 volumeMounts를 설정하여 연결한다
 - PV는 별도 생성하지 않으며, 지정된 storageClass를 통해 동적으로 볼륨이 프로비저닝되어 연결된다
 
-8. Pod 내에 모니터링을 위한 sidecar 컨테이너 추가
+
+Q) Create a new PersistentVolumeClaim:
+- Name: pv-volume
+- Class: csi-hostpath-scale
+- Capacity: 10Mi
+
+Create a new Pod which mounts the PersistentVolumeClaim as a volume:
+- Name: web-server
+- Image: nginx
+- Mount path: /usr/share/nginx.html
+
+Configure the new Pod to have ReadWriteOnce access on the volume.
+Volume capacity change(70Mi) using kubectl edit or kubectl patch with record
+
+A)
+vi 17-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+ name: pv-volume
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Mi
+  storageClassName: csi-hostpath-scale
+
+$ kubectl apply -f 17-pvc.yaml
+$ kubectl get pv,pvc
+
+
+vi 17-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+ name: web-server
+spec:
+  containers:
+    - name: web-server
+      image: nginx
+      volumeMounts:
+      - mountPath: "/usr/share/nginx/html"
+        name: pv-volume
+  volumes:
+    - name: pv-volume
+       persistentVolumeClaim:
+         claimName: pv-volume
+
+$ kubectl apply -f 17-pod.yaml
+$ kubectl get pods
+
+$ kubectl edit pvc --record
+
+...
+   resources:
+     requests:
+       storage: 70Mi(수정)
+
+7. Pod 내에 모니터링을 위한 sidecar 컨테이너 추가
 - emptyDir로 volumes을 선언하고 기존 container와 새로 추가한 sidecar container에 volumeMounts를 설정하여 /var/log 디렉토리를 마운트한다
 - sidecar Container는 busybox image를 사용한다
 - sidecar Container에 /bin/sh -c tail -n+1 -F /var/log/app.log 같은 형태의 명령어를 지정해야 한다
@@ -81,7 +304,83 @@ spec:
     emptyDir: {}
 
 
-9. 지정된 Namespace에 Service Account와 ClusterRole을 생성하고 ClusterRoleBinding으로 연결
+Q) Run a log streaming sidecar container that integrates logs 
+from you currently running monitoring pods into a kubernetes built-in logging architecture
+(eg kubectl logs)
+
+Add a side-car container named sidecar to the existing monitoring pod using the busybox image.
+
+The new sidecar container should run the following command:
+- Command : /bin/sh, -c, "tail -n+1 -f /var/log/access.log"
+
+You need to use the log file access.log in the sidecar container with a volume mounted on /var/log.
+
+Monitoring Pod and container must not be modified, only other volumes can be created.
+
+A)
+$ kubectl get pod monitoring -o yaml > 10.yaml
+
+cat 10.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+ name: monitoring
+spec:
+ containers:
+ - image: busybox
+    name: accesslog
+    command: ['/bin/sh','-c','i=1;while:;do echo -e "$i: Price: $((RANDOM % 10000 + 1))" >> /var/log/access.log; i=$((i+1));
+    volumeMounts:
+    - name: access
+      mountPath: /var/run/0000
+    volumes:
+    - hostPath:
+      .. add more..
+
+위 내용에 sidecar 컨테이너 /emptyDir 추가
+
+
+vi 10.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+ name: monitoring
+spec:
+ containers:
+ - image: busybox
+    name: accesslog
+    command: ['/bin/sh','-c','i=1;while:;do echo -e "$i: Price: $((RANDOM % 10000 + 1))" >> /var/log/access.log; i=$((i+1));
+    volumeMounts:
+    - name: access
+      mountPath: /var/run/0000
+    volumeMounts:
+    - name: varlog
+      mountPath: /var/log
+ containers:
+ - image: busybox
+    name: sidecar
+    command: ['/bin/sh','-c','i=1;while:;do echo -e "$i: Price: $((RANDOM % 10000 + 1))" >> /var/log/access.log; i=$((i+1));
+    volumeMounts:
+    - name: varlog
+      mountPath: /var/log
+    volumes:
+    - hostPath:
+      ..뭐가 더 있었음
+    - emptyDir: {}
+      name: varlog
+
+$ kubectl delete pod monitoring
+$ kubectl apply -f 10.yaml
+$ kubectl get pod monitoring
+$ kubectl describe pod monitoring     
+
+- 전형적인 사이드카 컨테이너 아키텍처 구성
+- 단, 기존에 access에 대한 hostpath 볼륨이 하나 구성되어있고 그것을 건들지 않고 shared 공간을 만들어 구성해야 함 -> emptyDir을 사용하여 구성
+
+
+
+
+8. 지정된 Namespace에 Service Account와 ClusterRole을 생성하고 ClusterRoleBinding으로 연결
 - ClusterRole 정책
 -- verb = create
 -- resources = deployment, statefulset, daemonset
@@ -98,8 +397,54 @@ $ kubectl create clusterrole <CLUSTER_ROLE_NAME> --verb=<VERB> --resource=<RESOU
 $ kubectl create clusterrolebinding <CLUSTER_ROLE_BINDING_NAME> --role=<CLUSTER_ROLE_NAME> --serviceaccount=<NAMESPACE>:<SERVICE_ACCOUNT_NAME>
 
 
-10. Node 하나가 NotReady 상태인데 Ready 상태가 되도록 문제 해결
+Q) Context You have been asked to create a new ClusterRole for a deployment pipeline 
+and bind it to a specific ServiceAccount scoped to a specific namespace.
+- Create a new ClusterRole named deployment-clusterrole, 
+which only allows to create the following resource types: Deployment StatfulSet DaemonSet
+- Create a new ServiceAccount named cicd-token in the existing namespace app-team1
+- Bind the new ClusterRole deployment-clusterrole to the new ServiceAccount cicd-token, 
+limited to the namespace app-team1
+
+A)
+$ kubectl create clusterrole deployment-clusterrole --verb=create --resource=deployment, statefultset, daemonset
+$ kubectl get clusterrole deployment-clusterrole
+
+$ kubectl create serviceaccount cicd-token --namespace=app-team1
+$ kubectl get serviceaccounts --namespace app-team1
+
+$ kubectl create clusterrolebinding deployment-clusterrole-binding --clusterrole=deployment-clusterrole --serviceaccount=app-team1:cicd-token
+$ kubectl describe clusterrolebindings deployment-clusterrole-binding
+
+- Clusterrole 생성 -> SA 생성 -> Cluterrole binding 생성
+- 네임스페이스 항목에 대해 유의해야 함
+
+
+
+9. Node 하나가 NotReady 상태인데 Ready 상태가 되도록 문제 해결
 - 문제가 되는 Node의 kubectl이 shutdown 상태였고 systemctl enable --now kubelet 명령으로 kubelet을 실행하여 문제를 해결하였다
+
+Q) A kubernetes worker node, named hk8s-worker-2 is in state NotReady. Investigate why this is the case, 
+and perform any appropriate steps to bring the node to a Ready state, ensuring that any changes are made permanent.
+
+A) 
+$ kubectl config use-context hk8s
+$ kubectl get NodeSelector를
+$ ssh hk8s-worker-2
+$ sudo -i
+# systemctl status containerd
+# systemctl status kubelet
+# systemctl enable --now kubelet
+# exit
+$ exit
+$ kubectl get nodes
+
+- worker 노드의 NotReady 상태라면 아래 3가지 항목에 대해 순차적으로 확인 필요
+1) containerd
+2) kubelet
+3) CNI
+- 따라서 containerd 확인 후 active, enable 상태라면 kubelet 상태 확인. 
+실행할 때에는 systemctl start가 아닌 enable --now를 통해 permanent 조건을 만족시켜야 함
+
 
 # 제대로 생성되었는지 권한 체크 방법
 $ kubectl auth can-i create deployment --as 'system:serviceaccount:<NAMESPACE>:<SERVICE_ACCOUNT_NAME>'
@@ -113,34 +458,122 @@ no
 $ kubectl auth can-i delete deployment --as 'system:serviceaccount:<NAMESPACE>:<SERVICE_ACCOUNT_NAME>'
 no
 
-11. Node의 모든 Pod를 내렸다가 다시 Reschedule 상태로 만들기
+10. Node의 모든 Pod를 내렸다가 다시 Reschedule 상태로 만들기
 $ kubectl drain <NODE_NAME> --ignore-daemonsets
 
 $ kubectl uncordon <NODE_NAME>
 
+Q) Set the node named k8s-worker-1 as unavailable and reschedule all the pods running on it.
 
-12. Pod 배포가 가능한 Node의 숫자 기록
-- Ready 상태이며 taint가 인 Node를 확인한다.
+A)
+$ kubectl get pods -o wide | grep k8s-worker-1
+$ kubectl drain k8s-worker-1 --ignore-daemonsets --force
+$ kubectl get pods -o wide
+- drain을 통해 해당 schedule도 불가한 cordon 상태와 비우기를 진행
+- 일부 지워지지 않는 것들을 해결하기 위해 --ignore-daemonsets 옵션이나 --force 옵션을 사용
 
 
-13. Multi 컨테이너 Pod 생성
+
+11. Multi 컨테이너 Pod 생성
 - container-1, container-2 정보를 주고, 해당 정보를 기반으로 하나의 Pod를 생성하는 문제다
 
+Q) Create a pod with 2 containers running: redis, memcached
+- pod name: multipod
+- image/name: redis
+- image/name: memcached
 
-14. 특정 Pod의 특정 로그를 추출해서 파일로 저장
+A)
+$ kubectl run multipod --image=redis --dry-run=client -o yaml > 9.yaml
+$ vi 9.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+ name: multipod
+spec:
+ containers:
+ - image: redis
+   name: redis
+ - image: memcached
+   name: memcached
+
+$ kubectl apply -f 9.yaml
+$ kubectl get pod multipod
+
+- 1개 Pod 안에 여러 개의 Pod를 생성하는 문제가
+- image와 name이 같도록 task가 주어짐
+
+
+12. 특정 Pod의 특정 로그를 추출해서 파일로 저장
 - 특정 로그 내용은 문제에서 주어진다
 $ kubectl logs <POD_NAME> | grep '로그 내용' > 1.txt
 
+Q) In the customera namespace, check the log for the nginx container in the custom-app Pod. 
+Save the lines which contain the text 'error' to the file /opt/scr/SC004001.txt
 
-15. NodeSelector를 활용하여 특정 Node에 Pod 배포
+A)
+$ kubectl config use-context hk8s
+$ kubectl get pods -n customera
+$ kubectl logs custom-app -n customera | grep -i error > /opt/data/SC004001.txt
 
-16. Deployment의 이미지를 변경하고 변경 사항을 기록
+- customera 네임스페이스와 그 안에 custom-app이 존재하는지 확인
+- custom-app 로그 확인 후 요구하는 내용을 grep하여 파일에 쓰기
+
+
+
+13. Deployment Scale
+$ kubectl scale deployment <DEPLOYMENT_NAME> --replicas=5
+
+
+Q) Expand the number of running Pods in "test" to 3.
+- deployment: test
+- replicas: 3
+
+$ kubectl get deployment test
+$ kubectl scale deployment shop --replicas=3
+$ kubectl get deployment test
+
+- 기존에 replicas 2였고 3개로 증가
+
+
+
+
+14. NodeSelector를 활용하여 특정 Node에 Pod 배포
+
+
+Q) Reconfigure the existing deployment front-end and add a port specification named http exposing port 80/tcp of the existing container nginx.
+Create a new service named front-end-svc expositing the container port http.
+Configure the enw service to also expose the individual Pods via a NodePort on the nodes on which they are scheduled
+
+
+A) 
+$ kubectl get deployment front-end -o yaml > 15.yaml
+
+vi 15.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: front-end
+spec:
+  selector:
+  
+
+
+
+15. 특정 Label이 붙은 Pod들 중에 CPU가 가장 높은 Pod 찾기
+$ kubectl top pods -l <KEY>=<VALUE> --sort-by='cpu'
+$ kubectl top pods -l <KEY>=<VALUE> --no-headers --sort-by='cpu' | head -1
+
+
+16. Pod 배포가 가능한 Node의 숫자 기록
+- Ready 상태이며 taint가 인 Node를 확인한다.
+
+
+
+17. Deployment의 이미지를 변경하고 변경 사항을 기록
 
 $ kubectl set image deployment <DEPLOYMENT_NAME> <CONTAINER_NAME>=<DOCKER_IMAGE> --record
 
 $ kubectl edit 명령을 통해 이미지를 변경해도 된다
 
-
-17. Deployment Scale
-$ kubectl scale deployment <DEPLOYMENT_NAME> --replicas=5
 
