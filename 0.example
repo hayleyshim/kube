@@ -556,7 +556,34 @@ metadata:
   name: front-end
 spec:
   selector:
-  
+    matchLabels:
+     app: front-end
+  replicas: 2
+  template:
+    metadata:
+     labels:
+       app: front-end
+    spec:
+      containers:
+      - name: http
+        image: nginx
+        ports:
+        - name: http
+           containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+ name: front-end-svc
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: http
+  selector:
+    app: front-end
+
 
 
 
@@ -577,5 +604,34 @@ $ kubectl set image deployment <DEPLOYMENT_NAME> <CONTAINER_NAME>=<DOCKER_IMAGE>
 
 $ kubectl edit 명령을 통해 이미지를 변경해도 된다
 
-18. Create a nginx pod called nginx-resolver
+18. 
+
+Q) Create a nginx pod called nginx-resolver using image nginx, 
+expose it internally with a service called nginx-resolver-service.
+Test that you are able to look up the service and pod names from within the cluster.
+User the image: busybox:1.28 for dns lookup.
+- Record results in /opt/scr/SC004005-svc and /opt/scr/SC004005-pod
+- Pod: nginx-resolver created
+- Service DNS Resolution recorded correctly
+- Pod DNS resolution recorded correctly
+
+A)
+
+$) kubectl run nginx-resolver --image= nginx --port=80
+$ kubectl expose pod nginx-resolver --name nginx-resolver-service --port=80
+$ kubectl get svc nginx-resolver-service (Cluster IP 확인)
+$ kubectl get pods -o wide(Pod IP 확인)
+
+$ kubectl run test --image=busybox:1.28 -it --rm -- /bin/sh
+/# nslookup 10.244.000.000 (Pod IP)
+결과 출력 
+
+/# nslookup 10.000.000.000 (Cluster IP)
+결과 출력
+
+cat > /opt/scr/SC004005-pod
+출력된 Pod IP 결과 입력
+
+cat > /opt/scr/SC004005-svc
+출력된 Cluster IP 결과 입력
 
