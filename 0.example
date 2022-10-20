@@ -565,6 +565,7 @@ $ kubectl top pods -l <KEY>=<VALUE> --sort-by='cpu'
 $ kubectl top pods -l <KEY>=<VALUE> --no-headers --sort-by='cpu' | head -1
 
 
+
 16. Pod 배포가 가능한 Node의 숫자 기록
 - Ready 상태이며 taint가 인 Node를 확인한다.
 
@@ -576,4 +577,5 @@ $ kubectl set image deployment <DEPLOYMENT_NAME> <CONTAINER_NAME>=<DOCKER_IMAGE>
 
 $ kubectl edit 명령을 통해 이미지를 변경해도 된다
 
+18. Create a nginx pod called nginx-resolver
 
