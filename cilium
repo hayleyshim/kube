@@ -204,3 +204,199 @@ $ grpcurl -plaintext -proto ./demo.proto $INGRESS_IP:80 hipstershop.CurrencyServ
 $ grpcurl -plaintext -proto ./demo.proto $INGRESS_IP:80 hipstershop.ProductCatalogService/ListProducts
 
 # create TLS certificate and private key
+$ mkcert '*.cilium.rocks'
+Created a new local CA 💥
+Note: the local CA is not installed in the system trust store.
+Run "mkcert -install" for certificates to be trusted automatically ⚠️
+
+Created a new certificate valid for the following names 📜
+ - "*.cilium.rocks"
+
+Reminder: X.509 wildcards only go one level deep, so this won't match a.b.cilium.rocks ℹ️
+
+The certificate is at "./_wildcard.cilium.rocks.pem" and the key at "./_wildcard.cilium.rocks-key.pem" ✅
+
+It will expire on 24 January 2025 🗓
+
+$ kubectl create secret tls demo-cert --key=_wildcard.cilium.rocks-key.pem --cert=_wildcard.cilium.rocks.pem
+secret/demo-cert created
+
+$ kubectl delete ingress basic-ingress
+$ kubectl delete ingress grpc-ingress
+
+$ cat tls-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tls-ingress
+  namespace: default
+spec:
+  ingressClassName: cilium
+  rules:
+    - host: hipstershop.cilium.rocks
+      http:
+        paths:
+          - backend:
+              service:
+                name: productcatalogservice
+                port:
+                  number: 3550
+            path: /hipstershop.ProductCatalogService
+            pathType: Prefix
+          - backend:
+              service:
+                name: currencyservice
+                port:
+                  number: 7000
+            path: /hipstershop.CurrencyService
+            pathType: Prefix
+    - host: bookinfo.cilium.rocks
+      http:
+        paths:
+          - backend:
+              service:
+                name: details
+                port:
+                  number: 9080
+            path: /details
+            pathType: Prefix
+          - backend:
+              service:
+                name: productpage
+                port:
+                  number: 9080
+            path: /
+            pathType: Prefix
+  tls:
+    - hosts:
+        - bookinfo.cilium.rocks
+        - hipstershop.cilium.rocks
+      secretName: demo-cert
+
+
+$ cat tls-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tls-ingress
+  namespace: default
+spec:
+  ingressClassName: cilium
+  rules:
+    - host: hipstershop.cilium.rocks
+      http:
+        paths:
+          - backend:
+              service:
+                name: productcatalogservice
+                port:
+                  number: 3550
+            path: /hipstershop.ProductCatalogService
+            pathType: Prefix
+          - backend:
+              service:
+                name: currencyservice
+                port:
+                  number: 7000
+            path: /hipstershop.CurrencyService
+            pathType: Prefix
+    - host: bookinfo.cilium.rocks
+      http:
+        paths:
+          - backend:
+              service:
+                name: details
+                port:
+                  number: 9080
+            path: /details
+            pathType: Prefix
+          - backend:
+              service:
+                name: productpage
+                port:
+                  number: 9080
+            path: /
+            pathType: Prefix
+  tls:
+    - hosts:
+        - bookinfo.cilium.rocks
+        - hipstershop.cilium.rocks
+      secretName: demo-cert
+
+$ kubectl apply -f tls-ingress.yaml
+ingress.networking.k8s.io/tls-ingress created
+
+$ kubectl get ingress tls-ingress
+NAME          CLASS    HOSTS                                            ADDRESS          PORTS     AGE
+tls-ingress   cilium   hipstershop.cilium.rocks,bookinfo.cilium.rocks   172.18.255.200   80, 443   25s
+
+$ INGRESS_IP=$(kubectl get ingress tls-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+$ cat << EOF >> /etc/hosts
+${INGRESS_IP} bookinfo.cilium.rocks
+${INGRESS_IP} hipstershop.cilium.rocks
+EOF
+
+
+# Make requests
+$ mkcert -install
+The local CA is now installed in the system trust store! ⚡️
+
+$ curl https://bookinfo.cilium.rocks/details/1
+{"id":1,"author":"William Shakespeare","year":1595,"type":"paperback","pages":200,"publisher":"PublisherA","language":"English","ISBN-10":"1234567890","ISBN-13":"123-1234567890"}
+
+$ grpcurl -proto ./demo.proto hipstershop.cilium.rocks:443 hipstershop.ProductCatalogService/ListProducts
+
+
+# Deploy test applications
+$ cilium connectivity test --test egress-l7
+
+$ kubectl get pods -n cilium-test --show-labels -o wide
+
+$ CLIENT2=$(kubectl -n cilium-test get po -l name=client2 -o jsonpath='{.items[0].metadata.name}')
+
+$ hubble observe --from-pod cilium-test/$CLIENT2 -f
+
+# switch to the >_Terminal2
+$ CLIENT2=$(kubectl -n cilium-test get po -l name=client2 -o jsonpath='{.items[0].metadata.name}')
+
+$ kubectl exec -it -n cilium-test $CLIENT2 -- curl -so /dev/null -w "%{http_code}\n" echo-same-node:8080/
+200
+
+$ kubectl exec -it -n cilium-test $CLIENT2 -- curl -so /dev/null -w "%{http_code}\n" echo-other-node:8080/
+200
+
+$ kubectl exec -it -n cilium-test $CLIENT2 -- curl -so /dev/null -w "%{http_code}\n" echo-same-node:8080/foo
+404
+
+$ kubectl exec -it -n cilium-test $CLIENT2 -- curl -so /dev/null -w "%{http_code}\n" echo-other-node:8080/foo
+404
+
+$ kubectl apply -f https://raw.githubusercontent.com/cilium/cilium-cli/master/connectivity/manifests/client-egress-l7-http.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/cilium/cilium-cli/master/connectivity/manifests/client-egress-only-dns.yaml
+ciliumnetworkpolicy.cilium.io/client-egress-l7-http created
+ciliumnetworkpolicy.cilium.io/client-egress-only-dns created
+
+$ kubectl exec -it -n cilium-test $CLIENT2 -- curl -so /dev/null -w "%{http_code}\n" echo-same-node:8080/
+200
+
+$ kubectl exec -it -n cilium-test $CLIENT2 -- curl -so /dev/null -w "%{http_code}\n" echo-same-node:8080/foo
+404
+
+$ cat envoy-test.yaml
+
+$ kubectl apply -f envoy-test.yaml
+ciliumclusterwideenvoyconfig.cilium.io/envoy-lb-listener created
+
+$ kubectl exec -it -n cilium-test $CLIENT2 -- curl -so /dev/null -w "%{http_code}\n" echo-same-node:8080/foo
+200
+
+$ kubectl exec -it -n cilium-test $CLIENT2 -- curl -so /dev/null -w "%{http_code}\n" echo-same-node:8080/bar
+404
+
+$ for i in {1..10}; do
+  kubectl exec -it -n cilium-test $CLIENT2 -- curl -so /dev/null -w "%{http_code}\n" echo-same-node:8080
+done
+
+
+
