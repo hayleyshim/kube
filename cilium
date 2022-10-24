@@ -1,0 +1,206 @@
+# Service Mesh Lab
+
+# The following command will wait for Cilium to be up and running and report its status:
+$ cilium status --wait
+   /¯¯\
+ /¯¯\__/¯¯\    Cilium:         OK
+ \__/¯¯\__/    Operator:       OK
+ /¯¯\__/¯¯\    Hubble:         OK
+ \__/¯¯\__/    ClusterMesh:    disabled
+    \__/
+
+Deployment        hubble-relay       Desired: 1, Ready: 1/1, Available: 1/1
+Deployment        cilium-operator    Desired: 2, Ready: 2/2, Available: 2/2
+DaemonSet         cilium             Desired: 3, Ready: 3/3, Available: 3/3
+Deployment        hubble-ui          Desired: 1, Ready: 1/1, Available: 1/1
+Containers:       cilium             Running: 3
+                  hubble-ui          Running: 1
+                  hubble-relay       Running: 1
+                  cilium-operator    Running: 2
+Cluster Pods:     6/6 managed by Cilium
+Image versions    hubble-ui          quay.io/cilium/hubble-ui:v0.9.0@sha256:0ef04e9a29212925da6bdfd0ba5b581765e41a01f1cc30563cef9b30b457fea0: 1
+                  hubble-ui          quay.io/cilium/hubble-ui-backend:v0.9.0@sha256:000df6b76719f607a9edefb9af94dfd1811a6f1b6a8a9c537cba90bf12df474b: 1
+                  hubble-relay       quay.io/cilium/hubble-relay:v1.12.0-rc3@sha256:b678ee945d0e7750a795a9ac06483152b41b4a7a9c862df4e00c545c37047182: 1
+                  cilium-operator    quay.io/cilium/operator-generic:v1.12.0-rc3@sha256:8b672895e0248beedc62be0b563056b5ef4ea0c2d7331aaaef15b6b31f622ed0: 2
+                  cilium             quay.io/cilium/cilium:v1.12.0-rc3@sha256:e4cf44318235764561e19ef4e49d64d4d2b465fbe7acf424689bc29d2f7d30cf: 3
+
+
+# Verify that Cilium was started with the Ingress Controller feature
+$ cilium config view | grep ingress-controller
+enable-ingress-controller                      true
+
+# Ingress
+# Let's deploy the sample application in the cluster
+$ kubectl apply -f /opt/bookinfo.yml
+ccount/bookinfo-details created
+deployment.apps/details-v1 created
+service/ratings created
+serviceaccount/bookinfo-ratings created
+deployment.apps/ratings-v1 created
+service/reviews created
+serviceaccount/bookinfo-reviews created
+deployment.apps/reviews-v1 created
+deployment.apps/reviews-v2 created
+deployment.apps/reviews-v3 created
+service/productpage created
+serviceaccount/bookinfo-productpage created
+deployment.apps/productpage-v1 created
+
+$ kubectl get pods
+NAME                              READY   STATUS    RESTARTS   AGE
+details-v1-586577784f-r62js       1/1     Running   0          61s
+productpage-v1-589b848cc9-4nvcm   1/1     Running   0          61s
+ratings-v1-679fc7b4f-n9kxj        1/1     Running   0          61s
+reviews-v1-7b76665ff9-vvxtf       1/1     Running   0          61s
+reviews-v2-6b86c676d9-2g7h8       1/1     Running   0          61s
+reviews-v3-b77c579-nx64n          1/1     Running   0          61s
+
+$ cat basic-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: basic-ingress
+  namespace: default
+spec:
+  ingressClassName: cilium
+  rules:
+  - http:
+      paths:
+      - backend:
+          service:
+            name: details
+            port:
+              number: 9080
+        path: /details
+        pathType: Prefix
+      - backend:
+          service:
+            name: productpage
+            port:
+              number: 9080
+        path: /
+        pathType: Prefix
+
+$ kubectl apply -f basic-ingress.yaml
+ingress.networking.k8s.io/basic-ingress created
+
+$ kubectl get svc
+NAME                           TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE
+cilium-ingress-basic-ingress   LoadBalancer   10.96.181.146   172.18.255.200   80:31158/TCP   25s
+details                        ClusterIP      10.96.238.165   <none>           9080/TCP       9m18s
+kubernetes                     ClusterIP      10.96.0.1       <none>           443/TCP        18m
+productpage                    ClusterIP      10.96.222.169   <none>           9080/TCP       9m17s
+ratings                        ClusterIP      10.96.108.129   <none>           9080/TCP       9m17s
+reviews                        ClusterIP      10.96.30.19     <none>           9080/TCP       9m17s
+
+$ kubectl get ingress
+NAME            CLASS    HOSTS   ADDRESS          PORTS   AGE
+basic-ingress   cilium   *       172.18.255.200   80      49s
+
+$ INGRESS_IP=$(kubectl get ingress basic-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+$ kubectl patch svc cilium-ingress-basic-ingress --patch '{"spec": {"type": "LoadBalancer", "ports": [ { "name": "http", "port": 80, "protocol": "TCP", "targetPort": 80, "nodePort": 32100 } ] } }'
+service/cilium-ingress-basic-ingress patched
+
+
+# Service Mesh Observability
+$ hubble observe --namespace default
+
+$ hubble observe --namespace default -o json
+
+$ kubectl annotate pod -l app=productpage --overwrite io.cilium.proxy-visibility="<Ingress/9080/TCP/HTTP>"
+pod/productpage-v1-589b848cc9-4nvcm annotated
+
+$ kubectl apply -f https://docs.isovalent.com/v1.11/public/http-ingress-visibility.yaml
+ciliumnetworkpolicy.cilium.io/http-ingress-visibility created
+
+$ hubble observe --namespace default
+$ hubble observe --protocol http --label app=reviews --port 9080
+
+
+# gRPC
+# https://github.com/GoogleCloudPlatform/microservices-demo
+
+# install the app
+$ kubectl apply -f /opt/gcp-microservices-demo.yml
+deployment.apps/emailservice created
+service/emailservice created
+deployment.apps/checkoutservice created
+service/checkoutservice created
+deployment.apps/recommendationservice created
+service/recommendationservice created
+deployment.apps/frontend created
+service/frontend created
+service/frontend-external created
+deployment.apps/paymentservice created
+service/paymentservice created
+deployment.apps/productcatalogservice created
+service/productcatalogservice created
+deployment.apps/cartservice created
+service/cartservice created
+deployment.apps/loadgenerator created
+deployment.apps/currencyservice created
+service/currencyservice created
+deployment.apps/shippingservice created
+service/shippingservice created
+deployment.apps/redis-cart created
+service/redis-cart created
+deployment.apps/adservice created
+service/adservice created
+
+$ curl -o demo.proto https://raw.githubusercontent.com/GoogleCloudPlatform/microservices-demo/master/pb/demo.proto
+
+# deploy the ingress
+$ kubectl apply -f grpc-ingress.yaml
+ingress.networking.k8s.io/grpc-ingress created
+
+$ kubectl get ingress
+INGRESS_IP=$(kubectl get ingress grpc-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+NAME            CLASS    HOSTS   ADDRESS          PORTS   AGE
+basic-ingress   cilium   *       172.18.255.200   80      9m56s
+grpc-ingress    cilium   *       172.18.255.202   80      13s
+
+
+# Make gRPC requests to backend services 
+$ grpcurl -plaintext -proto ./demo.proto $INGRESS_IP:80 hipstershop.CurrencyService/GetSupportedCurrencies
+{
+  "currencyCodes": [
+    "EUR",
+    "USD",
+    "JPY",
+    "BGN",
+    "CZK",
+    "DKK",
+    "GBP",
+    "HUF",
+    "PLN",
+    "RON",
+    "SEK",
+    "CHF",
+    "ISK",
+    "NOK",
+    "HRK",
+    "RUB",
+    "TRY",
+    "AUD",
+    "BRL",
+    "CAD",
+    "CNY",
+    "HKD",
+    "IDR",
+    "ILS",
+    "INR",
+    "KRW",
+    "MXN",
+    "MYR",
+    "NZD",
+    "PHP",
+    "SGD",
+    "THB",
+    "ZAR"
+  ]
+}
+
+$ grpcurl -plaintext -proto ./demo.proto $INGRESS_IP:80 hipstershop.ProductCatalogService/ListProducts
+
+# create TLS certificate and private key
